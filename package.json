@@ -1,0 +1,21 @@
+{
+    "name": "yarn-workspace-lerna-monorepo",
+    "version": "1.0.0",
+    "private": true,
+    "workspaces": {
+        "packages": [
+            "shared/**",
+            "apps/**"
+        ],
+        "nohoist": [
+            "**/react-native",
+            "**/react-native/**",
+            "**/react-native-device-info",
+            "**/react-native-device-info/**"
+        ]
+    },
+    "scripts": {},
+    "devDependencies": {
+        "lerna": "^3.22.1"
+    }
+}
