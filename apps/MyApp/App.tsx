@@ -31,7 +31,7 @@ import hello from '../../shared/utilities/hello';
 declare const global: {HermesInternal: null | {}};
 
 const App = () => {
-  const name = DeviceInfo.getUniqueId() || 'dero';
+  const name = DeviceInfo.getApplicationName() || 'dero';
   return (
     <>
       <StatusBar barStyle="dark-content" />

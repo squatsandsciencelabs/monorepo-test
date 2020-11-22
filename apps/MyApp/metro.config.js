@@ -6,13 +6,14 @@
  */
 
 const path = require('path');
+const blacklist = require('metro-config/src/defaults/blacklist');
 
 // from https://blog.g2i.co/how-to-set-up-a-monorepo-with-react-native-you-i-and-yarn-workspaces-3e83c3f08cf1
 // ignoring the blacklist as I don't have a web folder with a build directory here
 const watchFolders = [
   path.resolve(__dirname, '../../node_modules'),
   path.resolve(__dirname, '../../shared'),
-  path.resolve(__dirname, '../../shared/node_modules'), // not sure this has any effect, random attempt
+  // path.resolve(__dirname, '../../shared/node_modules'), // not sure this has any effect, random attempt
 ];
 
 // from https://medium.com/@dushyant_db/how-to-import-files-from-outside-of-root-directory-with-react-native-metro-bundler-18207a348427
@@ -42,6 +43,10 @@ module.exports = {
     }),
   },
   resolver: {
+    blacklistRE: blacklist([
+      // /^((?!shared).)+[\/\\]node_modules[/\\]react-native[/\\].*/,
+      // /shared[\/\\]node_modules[/\\]react-native-device-info[/\\].*/,
+    ]),
     extraNodeModules
   },
   watchFolders,
