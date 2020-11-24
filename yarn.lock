@@ -2164,6 +2164,11 @@
   dependencies:
     "@types/prop-types" "*"
 
+"@types/redux-orm@^0.13.6":
+  version "0.13.6"
+  resolved "https://registry.yarnpkg.com/@types/redux-orm/-/redux-orm-0.13.6.tgz#1ec201e4d20a096c988c2a63452d2c0390f9803b"
+  integrity sha512-tThEs7JSH1fao+vv6dpqR3HVCV3Z14+QU7nQuEgL8+pkWOWb4HXkGZy262K8/3lBhGqWyOGwph5/IgBx0MGOpA==
+
 "@types/stack-utils@^1.0.1":
   version "1.0.1"
   resolved "https://registry.yarnpkg.com/@types/stack-utils/-/stack-utils-1.0.1.tgz#0a851d3bd96498fa25c33ab7278ed3bd65f06c3e"

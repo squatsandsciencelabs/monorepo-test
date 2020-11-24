@@ -23,11 +23,13 @@ I don't know which one I like more. They both work.
 I might just go with the second one for now as there's no real advantage to grouping
 */
 
-import { Reducer } from 'redux';
+import { Reducer, AnyAction } from 'redux';
+import { ORM } from 'redux-orm';
+import { OrmSession } from 'redux-orm/Session';
 
 export interface ReducerSlice {
     readonly reducerKey: string;
-    readonly actionKey: string;
+    readonly actionType: string;
     readonly actionHandler: Reducer;
 }
 
@@ -36,11 +38,14 @@ export interface ReducerInitialState {
     readonly state: any;
 }
 
-// function should take in ALL of the above entirely
-// function should either call combine reducers, OR return a dictionary that can be used by combine reducers
-export function combineReducerSlices(slices: ReducerSlice[], initialStates: ReducerInitialState[]) {
-    const reducerDictionary: { [reducerKey: string]: Reducer} = {}; // what gets returned by this function
-    const actionHandlersDictionary: { [reducerKey: string]: { [actionKey: string]: Reducer}} = {}; // lookup for each generated function
+type ReducerDictionary = {[reducerKey: string]: Reducer};
+
+// for non orm functions
+// generates a dictionary of reducers
+// can be called directly by combineReducers
+export function combineReducerSlices(slices: ReducerSlice[], initialStates: ReducerInitialState[]): ReducerDictionary {
+    const reducerDictionary: ReducerDictionary = {}; // what gets returned by this function
+    const actionHandlersDictionary: { [reducerKey: string]: { [actionType: string]: Reducer}} = {}; // lookup for each generated function
     const initialStateDictionary: { [reducerKey: string]: any} = {}; // lookup for initial states
 
     // process slices
@@ -53,12 +58,12 @@ export function combineReducerSlices(slices: ReducerSlice[], initialStates: Redu
         }
 
         // error out if duplicate action
-        if (actionHandlersDictionary[reducerKey][slice.actionKey]) {
-            throw `Reducer with key ${reducerKey} has duplicate action callbacks for action ${slice.actionKey}`;
+        if (actionHandlersDictionary[reducerKey][slice.actionType]) {
+            throw `Reducer with key ${reducerKey} has duplicate action callbacks for action ${slice.actionType}`;
         }
 
         // save reducer function to that reducer key + action combination
-        actionHandlersDictionary[reducerKey][slice.actionKey] = slice.actionHandler;
+        actionHandlersDictionary[reducerKey][slice.actionType] = slice.actionHandler;
     }
 
     // process initial states
@@ -66,7 +71,7 @@ export function combineReducerSlices(slices: ReducerSlice[], initialStates: Redu
         const reducerKey = initialState.reducerKey;
 
         if (initialStateDictionary[reducerKey]) {
-            throw `Reduce with key ${reducerKey} has duplicate initial state`;
+            throw `Reducer with key ${reducerKey} has duplicate initial state`;
         }
 
         initialStateDictionary[reducerKey] = initialState.state;
@@ -96,12 +101,32 @@ export function combineReducerSlices(slices: ReducerSlice[], initialStates: Redu
     return reducerDictionary;
 }
 
-// export interface ORMReducerSlice {
-//     readonly reducerKey: string;
-//     readonly actionKey: string;
-//     readonly actionHandler: ();
-// }
+export type ORMActionHandler = (session: OrmSession<any>, action: AnyAction) => void;
 
-// function combineORMSlices(ormReducerSlicers: ORMReducerSlice[]) {
+export interface ORMReducerSlice {
+    readonly actionType: string;
+    readonly actionHandler: ORMActionHandler;
+}
 
-// }
+// generates a single reducer for ORM
+// can set this as the property of a key in combine reducers
+export function combineORMSlices(orm: ORM<any, any>, ormReducerSlices: ORMReducerSlice[]): Reducer {
+    // generate array of slices to dictionary
+    const dictionary: { [actionType: string]: ORMActionHandler } = {};
+    for (const slice of ormReducerSlices) {
+        if (dictionary[slice.actionType]) {
+            throw `ORM reducer has duplicate action handler for key ${slice.actionType}`;
+        }
+
+        dictionary[slice.actionType] = slice.actionHandler;
+    }
+
+    // return function
+    return (state, action) => {
+        const session = orm.session(state);
+        if (dictionary[action.type]) {
+            dictionary[action.type](session, action);
+        }
+        return session.state;
+    };
+}
