@@ -23,22 +23,25 @@ I don't know which one I like more. They both work.
 I might just go with the second one for now as there's no real advantage to grouping
 */
 
-import { Reducer } from 'redux';
+import { Reducer, Action, AnyAction } from 'redux';
 import {
     createAction,
     createReducer,
     ActionReducerMapBuilder,
+    PayloadAction,
+    PayloadActionCreator,
+    TypedActionCreator,
 } from '@reduxjs/toolkit';
 import { ThunkAction } from 'redux-thunk';
 
-import { ORM } from 'redux-orm';
+import { ORM, ModelType } from 'redux-orm';
 import { OrmSession } from 'redux-orm/Session';
 
 ////////////////////////////////////////
 // LOGIC FOR SLICES AND INITIAL STATE //
 ////////////////////////////////////////
 
-type ReducerSliceHandler<State> = (builder: ActionReducerMapBuilder<State>) => ActionReducerMapBuilder<State>
+type ReducerSliceHandler<State> = (builder: ActionReducerMapBuilder<State>) => void;
 
 export interface ReducerSlice<State> {
     readonly reducerKey: string;
@@ -90,7 +93,7 @@ export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates:
     for (const [key, array] of Object.entries(sliceDictionary)) {
         result[key] = createReducer(initialStates[key], (builder) => {
             for (const handler of array) {
-                builder = handler(builder);
+                handler(builder);
             }
         });
     }
@@ -101,7 +104,6 @@ export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates:
 ///////////////////////////////////////////
 // EXAMPLE USAGE OF HANDLERS AND ACTIONS //
 ///////////////////////////////////////////
-
 
 // state of reducer for this particular bucket, reducer can have extended state from other reducers
 export interface sliceReducerInterface {
@@ -130,7 +132,7 @@ export const sliceActionTest = createAction("CREATE_SOMETHING", function prepare
 export const sliceTest: ReducerSlice<sliceReducerInterface> = {
     reducerKey: 'foobar',
     handler: (builder) => {
-        return builder.addCase(sliceActionTest, (state, action) => {
+        builder.addCase(sliceActionTest, (state, action) => {
             state.text = action.payload.text;
         });
     }
@@ -144,125 +146,86 @@ export const sliceTest: ReducerSlice<sliceReducerInterface> = {
 const result = combineReducerSlices([sliceTest], [initialState]);
 
 
-/*
+
 //////////////////////////
 // LOGIC FOR ORM SLICES //
 //////////////////////////
 
-export type ORMActionHandler = (session: OrmSession<any>, action: AnyAction) => void;
+type ORMReducer<A extends Action = AnyAction> = (session: OrmSession<any>, action: A) => void;
+
+type ORMReducerBuilder = { addCase<ActionCreator extends TypedActionCreator<string>>(actionCreator: ActionCreator, callback: ORMReducer<ReturnType<ActionCreator>>): void; }
+
+type ORMReducerSliceHandler = (builder: ORMReducerBuilder) => void;
 
 export interface ORMReducerSlice {
     readonly actionType: string;
-    readonly actionHandler: ORMActionHandler;
+    readonly handler: ORMReducerSliceHandler;
 }
 
-// generates a single reducer for ORM
-// can set this as the property of a key in combine reducers
-export function combineORMSlices(orm: ORM<any, any>, ormReducerSlices: ORMReducerSlice[]): Reducer {
-    // generate array of slices to dictionary
-    const dictionary: { [actionType: string]: ORMActionHandler } = {};
+export const combineORMSlices = (orm: ORM<any, any>, ormReducerSlices: ORMReducerSlice[]) => {
+    // dictionary
+    const dictionary: { [actionType: string]: ORMReducer[] } = {};
+    
+    // create builder
+    const builder: ORMReducerBuilder = {
+        addCase<ActionCreator extends TypedActionCreator<string>>(
+            actionCreator: ActionCreator,
+            callback: ORMReducer<ReturnType<ActionCreator>>) {
+                const key = actionCreator.type;
+                if (!dictionary[key]) {
+                    dictionary[key] = [callback];
+                } else {
+                    dictionary[key].push(callback);
+                }
+            }
+    };
+
+    // pass builder to functions which should add stuff to dictionary
     for (const slice of ormReducerSlices) {
-        if (dictionary[slice.actionType]) {
-            throw `ORM reducer has duplicate action handler for key ${slice.actionType}`;
-        }
-
-        dictionary[slice.actionType] = slice.actionHandler;
+        slice.handler(builder);
     }
-
+    
     // return function
     return (state, action) => {
-        const session = orm.session(state);
+        const session = orm.mutableSession(state);
         if (dictionary[action.type]) {
-            dictionary[action.type](session, action);
+            for (const ormReducer of dictionary[action.type]) {
+                ormReducer(session, action);
+            }
         }
         return session.state;
     };
 }
-*/
 
-// NOTE: OLD LOGIC, deprecated in favor of RTK
-/*
-    // for (const slice of slices) {
-    //     const reducerKey = slice.reducerKey;
+///////////////////////////////////////////
+// EXAMPLE USAGE OF HANDLERS AND ACTIONS //
+///////////////////////////////////////////
 
-    //     // generate initial dictionary for that reducer key
-    //     if (!actionHandlersDictionary[reducerKey]) {
-    //         actionHandlersDictionary[reducerKey] = {};
-    //     }
+const ormSliceTest: ORMReducerSlice = {
+    actionType: sliceActionTest.type,
+    handler: (builder) => {
+        builder.addCase(sliceActionTest, (session, action) => {
+            // Session cannot be known at compile time, only runtime, as it's on a per project basis
+            // As a result, it's up to developer to properly cast the model like so
+            // Note that this is the same way it's currently handled in sagas
+            // const Athletes: ModelType<AthletesModel> = session.Athletes;
 
-    //     // error out if duplicate action
-    //     if (actionHandlersDictionary[reducerKey][slice.actionType]) {
-    //         throw `Reducer with key ${reducerKey} has duplicate action callbacks for action ${slice.actionType}`;
-    //     }
+            // Typescript is working here
+            action.payload.text;
 
-    //     // save reducer function to that reducer key + action combination
-    //     actionHandlersDictionary[reducerKey][slice.actionType] = slice.actionHandler;
-    // }
+            // redux-orm needs Models defined as AnyType is set to never, but in theory should be perfectly functional
+            // Blocks.create({
+            //     foobar: action.payload.text,
+            // })
+        });
+    },
+};
 
-    // generate
-    // for (const reducerKey in actionHandlersDictionary) {
-    //     const initialState = initialStateDictionary[reducerKey];
-    //     reducerDictionary[reducerKey] = function(state, action) {
-    //         // set the initial state
-    //         let nextState = state;
-    //         if (!nextState && initialState) {
-    //             nextState = initialState;
-    //         }
+/////////////////////////////////////////
+// EXAMPLE USAGE OF COMBINE ORM SLICES //
+/////////////////////////////////////////
 
-    //         if (actionHandlersDictionary[reducerKey][action.type]) {
-    //             // use action handler
-    //             return actionHandlersDictionary[reducerKey][action.type](nextState, action);
-    //         } else {
-    //             // no logic found for that reducer + action type
-    //             return nextState;
-    //         }
-    //     };
-    // }
+// note: should pass in the actual orm object here
+// I didn't make redux-orm models for this test project yet so just dumping in null for now
+const ormResult = combineORMSlices(null, [ormSliceTest]);
 
-    // // return the function
-    // return reducerDictionary;
-*/
-
-
-
-
-// NOTE: These were some experiments I did
-
-//   const fetchUserById = createAsyncThunk(
-//     'users/fetchByIdStatus',
-//     async (userId, thunkAPI) => {
-//         thunkAPI.getState
-//     }
-//   )
-
-
-// export function foobar<DefaultParams, PassedInParams>(type: string, defaults: DefaultParams, prepare: Function) {
-//     const returnFunction = function(params: PassedInParams) {
-//         const result = {
-//             ...defaults,
-//             ...params,
-//             type,
-//         };
-//         prepare(result);
-//         return result;
-//     }
-//     returnFunction.type = type;
-//     returnFunction.toString = () => `${type}`;
-//     // TODO: match function?
-//     return returnFunction;
-// }
-
-// interface MyDefaults {
-//     hello: string;
-// }
-// interface MyParams {
-//     entryId: string;
-// }
-
-// const action = foobar<MyDefaults, MyParams>('NOTHING_SUCCEEDED', {hello: 'world'});
-// const result = action({entryId: 'soemthing5'});
-
-// export function createAction<Keys, Payload>() {
-
-// };
-// createAction.prototype.type
