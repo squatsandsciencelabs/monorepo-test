@@ -10,12 +10,14 @@
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx"
   },
   "dependencies": {
+    "@reduxjs/toolkit": "^1.5.0",
     "mathjs": "^8.0.1",
     "react": "16.13.1",
     "react-native": "0.63.3",
     "react-native-device-info": "^7.1.0",
     "redux": "^4.0.5",
-    "redux-orm": "^0.16.2"
+    "redux-orm": "^0.16.2",
+    "redux-thunk": "^2.3.0"
   },
   "devDependencies": {
     "@babel/core": "^7.8.4",
