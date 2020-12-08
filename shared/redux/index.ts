@@ -139,7 +139,7 @@ const result = combineReducerSlices([sliceTest], [initialState]);
 //////////////////////////
 
 // this is copied from redux toolkit as the toolkit does not expose this interface
-interface ORMTypedActionCreator<Type extends string> {
+interface TypedActionCreator<Type extends string> {
     (...args: any[]): Action<Type>;
     type: Type;
 }
@@ -148,7 +148,7 @@ interface ORMTypedActionCreator<Type extends string> {
 type ORMReducer<A extends Action = AnyAction> = (session: OrmSession<any>, action: A) => void;
 
 // this is a modified version of the builder in redux toolkit
-type ORMReducerBuilder = { addCase<ActionCreator extends ORMTypedActionCreator<string>>(actionCreator: ActionCreator, callback: ORMReducer<ReturnType<ActionCreator>>): void; }
+type ORMReducerBuilder = { addCase<ActionCreator extends TypedActionCreator<string>>(actionCreator: ActionCreator, callback: ORMReducer<ReturnType<ActionCreator>>): void; }
 
 // NOTE: the orm slice does NOT need a reducer key
 // this is since unlike general reducer logic above, orm logic typically all goes into a single reducer slice
@@ -162,7 +162,7 @@ export const combineORMSlices = (orm: ORM<any, any>, ormReducerSlices: ORMReduce
     // create builder
     const builder: ORMReducerBuilder = {
         // only addCase is supported for now, can modify to match what redux toolkit does moving forward as needed
-        addCase<ActionCreator extends ORMTypedActionCreator<string>>(
+        addCase<ActionCreator extends TypedActionCreator<string>>(
             actionCreator: ActionCreator,
             callback: ORMReducer<ReturnType<ActionCreator>>) {
                 const key = actionCreator.type;
