@@ -1,53 +1,25 @@
-/*
-Overall, I do not want to redo combine reducers, aka managing prev and next state.
-My functions should return the REDUCERS themselves, not the states, and then someone can call combine reducers w/ it.
-Do have to consider how redux-orm should connect with it, as redux-orm needs its own way to generate something
-Basically that is another sub layer that generates a function that THIS system will use
-
-Two formats can be
-
-{
-  reducerKey: [{
-	actionKey,
-	stateChangeFunction,
-  }]
-}
-
-[{
-  reducerKey,
-  actionKey,
-  stateChangeFunction,
-}]
-
-I don't know which one I like more. They both work.
-I might just go with the second one for now as there's no real advantage to grouping
-*/
-
 import { Reducer, Action, AnyAction } from 'redux';
 import {
     createAction,
     createReducer,
     ActionReducerMapBuilder,
-    PayloadAction,
-    PayloadActionCreator,
     TypedActionCreator,
 } from '@reduxjs/toolkit';
 import { ThunkAction } from 'redux-thunk';
 
 import { ORM, ModelType } from 'redux-orm';
 import { OrmSession } from 'redux-orm/Session';
-import orm from './orm';
 import AthletesModel from '../models/athletes';
 
 ////////////////////////////////////////
 // LOGIC FOR SLICES AND INITIAL STATE //
 ////////////////////////////////////////
 
-type ReducerSliceHandler<State> = (builder: ActionReducerMapBuilder<State>) => void;
+type ReducerSliceFactory<State> = (builder: ActionReducerMapBuilder<State>) => void;
 
 export interface ReducerSlice<State> {
     readonly reducerKey: string;
-    readonly handler: ReducerSliceHandler<State>;
+    readonly factory: ReducerSliceFactory<State>;
 }
 
 export interface ReducerInitialState {
@@ -59,7 +31,7 @@ type ReducerDictionary = {[reducerKey: string]: Reducer};
 
 // for non orm functions
 // generates a dictionary of reducers
-// can be called directly by combineReducers
+// output can be sent directly by combineReducers
 export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates: ReducerInitialState[]): ReducerDictionary {
     // process initial states
     const initialStateDictionary: { [reducerKey: string]: any} = {}; // lookup for initial states
@@ -80,13 +52,13 @@ export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates:
     }
 
     // process slices by key into a dictionary
-    const sliceDictionary: { [reducerKey: string]: ReducerSliceHandler<any>[]} = {};
+    const sliceDictionary: { [reducerKey: string]: ReducerSliceFactory<any>[]} = {};
     for (const slice of slices) {
         const reducerKey = slice.reducerKey;
         if (!sliceDictionary[reducerKey]) {
-            sliceDictionary[reducerKey] = [slice.handler];
+            sliceDictionary[reducerKey] = [slice.factory];
         } else {
-            sliceDictionary[reducerKey].push(slice.handler);
+            sliceDictionary[reducerKey].push(slice.factory);
         }
     }
 
@@ -108,7 +80,7 @@ export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates:
 ///////////////////////////////////////////
 
 // state of reducer for this particular bucket, reducer can have extended state from other reducers
-export interface sliceReducerInterface {
+export interface MyFeatureSliceReducer {
     text: string;
 }
 
@@ -121,7 +93,7 @@ export const initialState: ReducerInitialState = {
 };
 
 // here is an action that the reducer calls
-export const sliceActionTest = createAction("CREATE_SOMETHING", function prepare(text: string, something: number) {
+export const myFeatureAction = createAction("CREATE_SOMETHING", function prepare(text: string, something: number) {
     return {
         payload: {
             text,
@@ -130,11 +102,24 @@ export const sliceActionTest = createAction("CREATE_SOMETHING", function prepare
     };
 });
 
+// NOTE: Analytics on actions would be done IN THE PROJECT THEMSELVES through a Thunk that dispatches this action
+// This is because:
+// 1. a Thunk NEEDS to know the state of the store to function TypeScript wise
+// 2. Analytics are project specific, safer to not share it
+// So I would create an project wide ThunkAction using the combined state of the store. It would look something like
+// export type AppThunk = ThunkAction<?, ?, ?, ?>
+// Then the thunk would be like
+// export const myWrappedFeatureAction: AppThunk = (text: string, something: number): (dispatch, getState) => {
+// const state = getState();
+// analytics.log();
+// dispatch(myFeatureAction(text, something));
+// }
+
 // here is a reducer slice with a handler
-export const sliceTest: ReducerSlice<sliceReducerInterface> = {
+export const sliceTest: ReducerSlice<MyFeatureSliceReducer> = {
     reducerKey: 'foobar',
-    handler: (builder) => {
-        builder.addCase(sliceActionTest, (state, action) => {
+    factory: (builder) => {
+        builder.addCase(myFeatureAction, (state, action) => {
             state.text = action.payload.text;
         });
     }
@@ -144,7 +129,8 @@ export const sliceTest: ReducerSlice<sliceReducerInterface> = {
 // EXAMPLE USAGE OF CREATE SLICE //
 ///////////////////////////////////
 
-// this can then be sent to combineReducers
+// this has a dictionary of reducers
+// this can then be sent directly to combineReducers
 const result = combineReducerSlices([sliceTest], [initialState]);
 
 
@@ -157,14 +143,14 @@ type ORMReducer<A extends Action = AnyAction> = (session: OrmSession<any>, actio
 
 type ORMReducerBuilder = { addCase<ActionCreator extends TypedActionCreator<string>>(actionCreator: ActionCreator, callback: ORMReducer<ReturnType<ActionCreator>>): void; }
 
-type ORMReducerSliceHandler = (builder: ORMReducerBuilder) => void;
+type ORMReducerSliceFactory = (builder: ORMReducerBuilder) => void;
 
 export interface ORMReducerSlice {
     readonly actionType: string;
-    readonly handler: ORMReducerSliceHandler;
+    readonly factory: ORMReducerSliceFactory;
 }
 
-export const combineORMSlices = (ormReducerSlices: ORMReducerSlice[]) => {
+export const combineORMSlices = (orm: ORM<any, any>, ormReducerSlices: ORMReducerSlice[]) => {
     // dictionary
     const dictionary: { [actionType: string]: ORMReducer[] } = {};
     
@@ -184,7 +170,7 @@ export const combineORMSlices = (ormReducerSlices: ORMReducerSlice[]) => {
 
     // pass builder to functions which should add stuff to dictionary
     for (const slice of ormReducerSlices) {
-        slice.handler(builder);
+        slice.factory(builder);
     }
     
     // return function
@@ -204,9 +190,9 @@ export const combineORMSlices = (ormReducerSlices: ORMReducerSlice[]) => {
 ///////////////////////////////////////////
 
 const ormSliceTest: ORMReducerSlice = {
-    actionType: sliceActionTest.type,
-    handler: (builder) => {
-        builder.addCase(sliceActionTest, (session, action) => {
+    actionType: myFeatureAction.type,
+    factory: (builder) => {
+        builder.addCase(myFeatureAction, (session, action) => {
             // Session cannot be known at compile time, only runtime, as it's on a per project basis
             // As a result, it's up to developer to properly cast the model like so
             // Note that this is the same way it's currently handled in sagas
@@ -223,7 +209,16 @@ const ormSliceTest: ORMReducerSlice = {
 // EXAMPLE USAGE OF COMBINE ORM SLICES //
 /////////////////////////////////////////
 
-// note: should pass in the actual orm object here
-// I didn't make redux-orm models for this test project yet so just dumping in null for now
-const ormResult = combineORMSlices([ormSliceTest]);
+// orm would be created by each PROJECT, it is not created within the shared folder
+// feature bucket actions and selectors would expose a setORM function that stores it in that module
+// always use absolute path (no relative) through use of tsconfig's baseURL to ensure it uses the same instance of the module
+// can have a convenience setORM function in the index.js of the feature bucket that calls it for the other modules as well
+// this appears to be the best approach as, I NEED the project to create the ORM due to stateSelector needing to be set in the constructor
+// and further, I want to allow for the possibility of two orm slices, like how I used draft_orm on the coaching portal
+// so I don't want the orm object to be created within the shared library, I need it passed in
+// and if it's passed in, it either needs to go thru a generation function or just get set.
+// Getting set IMO is simpler than wrapping all your calls in a function that generates the output, and works better w/ typescript too
+const orm = new ORM();
 
+// this returns the reducer, can set it to combine reducers to a specific key
+const ormResult = combineORMSlices(orm, [ormSliceTest]);
