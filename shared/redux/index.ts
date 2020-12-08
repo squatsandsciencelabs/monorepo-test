@@ -15,11 +15,11 @@ import AthletesModel from '../models/athletes';
 // LOGIC FOR SLICES AND INITIAL STATE //
 ////////////////////////////////////////
 
-type ReducerSliceFactory<State> = (builder: ActionReducerMapBuilder<State>) => void;
+type ReducerSliceBuilder<State> = (builder: ActionReducerMapBuilder<State>) => void;
 
 export interface ReducerSlice<State> {
     readonly reducerKey: string;
-    readonly factory: ReducerSliceFactory<State>;
+    readonly builder: ReducerSliceBuilder<State>;
 }
 
 export interface ReducerInitialState {
@@ -52,13 +52,13 @@ export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates:
     }
 
     // process slices by key into a dictionary
-    const sliceDictionary: { [reducerKey: string]: ReducerSliceFactory<any>[]} = {};
+    const sliceDictionary: { [reducerKey: string]: ReducerSliceBuilder<any>[]} = {};
     for (const slice of slices) {
         const reducerKey = slice.reducerKey;
         if (!sliceDictionary[reducerKey]) {
-            sliceDictionary[reducerKey] = [slice.factory];
+            sliceDictionary[reducerKey] = [slice.builder];
         } else {
-            sliceDictionary[reducerKey].push(slice.factory);
+            sliceDictionary[reducerKey].push(slice.builder);
         }
     }
 
@@ -118,7 +118,7 @@ export const myFeatureAction = createAction("CREATE_SOMETHING", function prepare
 // here is a reducer slice with a handler
 export const sliceTest: ReducerSlice<MyFeatureSliceReducer> = {
     reducerKey: 'foobar',
-    factory: (builder) => {
+    builder: (builder) => {
         builder.addCase(myFeatureAction, (state, action) => {
             state.text = action.payload.text;
         });
@@ -143,12 +143,10 @@ type ORMReducer<A extends Action = AnyAction> = (session: OrmSession<any>, actio
 
 type ORMReducerBuilder = { addCase<ActionCreator extends TypedActionCreator<string>>(actionCreator: ActionCreator, callback: ORMReducer<ReturnType<ActionCreator>>): void; }
 
-type ORMReducerSliceFactory = (builder: ORMReducerBuilder) => void;
-
-export interface ORMReducerSlice {
-    readonly actionType: string;
-    readonly factory: ORMReducerSliceFactory;
-}
+// NOTE: the orm slice does NOT need a reducer key
+// this is since unlike general reducer logic above, orm logic typically all goes into a single reducer slice
+// the except is something like draft_orm, in which case I can differentiate from ormReducers.ts with draftOrmReducers.ts without issue
+type ORMReducerSlice = (builder: ORMReducerBuilder) => void;
 
 export const combineORMSlices = (orm: ORM<any, any>, ormReducerSlices: ORMReducerSlice[]) => {
     // dictionary
@@ -170,7 +168,7 @@ export const combineORMSlices = (orm: ORM<any, any>, ormReducerSlices: ORMReduce
 
     // pass builder to functions which should add stuff to dictionary
     for (const slice of ormReducerSlices) {
-        slice.factory(builder);
+        slice(builder);
     }
     
     // return function
@@ -189,21 +187,18 @@ export const combineORMSlices = (orm: ORM<any, any>, ormReducerSlices: ORMReduce
 // EXAMPLE USAGE OF HANDLERS AND ACTIONS //
 ///////////////////////////////////////////
 
-const ormSliceTest: ORMReducerSlice = {
-    actionType: myFeatureAction.type,
-    factory: (builder) => {
-        builder.addCase(myFeatureAction, (session, action) => {
-            // Session cannot be known at compile time, only runtime, as it's on a per project basis
-            // As a result, it's up to developer to properly cast the model like so
-            // Note that this is the same way it's currently handled in sagas
-            const Athletes: ModelType<AthletesModel> = session.Athletes;
-            Athletes.create({
-                id: "foobar",
-                name: action.payload.text,
-            });
+const ormSliceTest: ORMReducerSlice = (builder) => {
+    builder.addCase(myFeatureAction, (session, action) => {
+        // Session cannot be known at compile time, only runtime, as it's on a per project basis
+        // As a result, it's up to developer to properly cast the model like so
+        // Note that this is the same way it's currently handled in sagas
+        const Athletes: ModelType<AthletesModel> = session.Athletes;
+        Athletes.create({
+            id: "foobar",
+            name: action.payload.text,
         });
-    },
-};
+    });
+},
 
 /////////////////////////////////////////
 // EXAMPLE USAGE OF COMBINE ORM SLICES //
