@@ -36,6 +36,8 @@ import { ThunkAction } from 'redux-thunk';
 
 import { ORM, ModelType } from 'redux-orm';
 import { OrmSession } from 'redux-orm/Session';
+import orm from './orm';
+import AthletesModel from '../models/athletes';
 
 ////////////////////////////////////////
 // LOGIC FOR SLICES AND INITIAL STATE //
@@ -162,7 +164,7 @@ export interface ORMReducerSlice {
     readonly handler: ORMReducerSliceHandler;
 }
 
-export const combineORMSlices = (orm: ORM<any, any>, ormReducerSlices: ORMReducerSlice[]) => {
+export const combineORMSlices = (ormReducerSlices: ORMReducerSlice[]) => {
     // dictionary
     const dictionary: { [actionType: string]: ORMReducer[] } = {};
     
@@ -208,15 +210,11 @@ const ormSliceTest: ORMReducerSlice = {
             // Session cannot be known at compile time, only runtime, as it's on a per project basis
             // As a result, it's up to developer to properly cast the model like so
             // Note that this is the same way it's currently handled in sagas
-            // const Athletes: ModelType<AthletesModel> = session.Athletes;
-
-            // Typescript is working here
-            action.payload.text;
-
-            // redux-orm needs Models defined as AnyType is set to never, but in theory should be perfectly functional
-            // Blocks.create({
-            //     foobar: action.payload.text,
-            // })
+            const Athletes: ModelType<AthletesModel> = session.Athletes;
+            Athletes.create({
+                id: "foobar",
+                name: action.payload.text,
+            });
         });
     },
 };
@@ -227,5 +225,5 @@ const ormSliceTest: ORMReducerSlice = {
 
 // note: should pass in the actual orm object here
 // I didn't make redux-orm models for this test project yet so just dumping in null for now
-const ormResult = combineORMSlices(null, [ormSliceTest]);
+const ormResult = combineORMSlices([ormSliceTest]);
 
