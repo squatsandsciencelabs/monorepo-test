@@ -26,7 +26,7 @@ import {
 } from 'react-native/Libraries/NewAppScreen';
 import * as math from 'mathjs';
 import DeviceInfo from 'react-native-device-info';
-import hello from '../../shared/utilities/hello';
+import hello from 'shared/utilities/hello';
 
 declare const global: {HermesInternal: null | {}};
 

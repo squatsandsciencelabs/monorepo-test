@@ -3,6 +3,8 @@ import {
     createAction,
     createReducer,
     ActionReducerMapBuilder,
+    PrepareAction,
+    PayloadActionCreator,
 } from '@reduxjs/toolkit';
 import { ThunkAction } from 'redux-thunk';
 
@@ -206,7 +208,7 @@ const ormSliceTest: ORMReducerSlice = (builder) => {
             name: action.payload.text,
         });
     });
-},
+};
 
 /////////////////////////////////////////
 // EXAMPLE USAGE OF COMBINE ORM SLICES //
@@ -225,3 +227,41 @@ const orm = new ORM();
 
 // this returns the reducer, can set it to combine reducers to a specific key
 const ormResult = combineORMSlices(orm, [ormSliceTest]);
+
+
+
+
+/*
+// ACTION WRAPPER TESTS //
+
+export function createAPIAction<PA extends PrepareAction<any>, T extends string = string>(type: T, prepareAction: PA)  {
+    // NOTE: I cannot figure out how to combine PayloadActionCreator with other typescript types
+    // So hack solution is to just define it inline here instead
+    // Hack involves setting the properties as undefine-able, and re-casting as normal
+    // There is definitely a safer and better way to do this in TypeScript
+
+    const attemptAction = createAction(`${type}_ATTEMPT`, prepareAction);
+    const succeededAction = createAction<any>(`${type}_SUCCEEDED`);
+    const failedAction = createAction<any>(`${type}_FAILED`); // payload will be the error I thinnk?
+
+    const action = createAction(type, prepareAction) as PayloadActionCreator<ReturnType<PA>['payload'], T, PA> & {
+        attemptAction?: ReturnType<PayloadActionCreator<ReturnType<PA>['payload'], `${type}_ATTEMPT`, PA>>;
+        succeededAction?: PayloadActionCreator;
+        failedAction?: PayloadActionCreator;
+    };
+    return action as PayloadActionCreator<ReturnType<PA>['payload'], T, PA>  & {
+        attemptAction: PayloadActionCreator;
+        succeededAction: PayloadActionCreator;
+        failedAction: PayloadActionCreator;
+    };;
+}
+
+const actionTest = createAPIAction('FETCH_GROUPS', (hello: string) => {
+    return {
+        goodbye: 'cruel world',
+        payload: {
+            hello
+        }
+    };
+});
+*/
