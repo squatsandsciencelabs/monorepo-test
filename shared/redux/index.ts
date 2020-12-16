@@ -3,8 +3,7 @@ import {
     createAction,
     createReducer,
     ActionReducerMapBuilder,
-    PrepareAction,
-    PayloadActionCreator,
+    CaseReducer,
 } from '@reduxjs/toolkit';
 import { ThunkAction } from 'redux-thunk';
 
@@ -16,16 +15,24 @@ import AthletesModel from '../models/athletes';
 // LOGIC FOR SLICES AND INITIAL STATE //
 ////////////////////////////////////////
 
-type ReducerSliceBuilder<State> = (builder: ActionReducerMapBuilder<State>) => void;
+// facade over action reducer map builder that only allows for case or matcher
+// done this way to get around redux toolkit limitation that cases must be executed before matchers
+type CaseBuilder<State> = Pick<ActionReducerMapBuilder<State>, "addCase">
+type MatcherBuilder<State> = Pick<ActionReducerMapBuilder<State>, "addMatcher">;
+
+// builder callback functions that give you access to the builder
+type SliceCaseBuilder<State> = (builder: CaseBuilder<State>) => void;
+type SliceMatcherBuilder<State> = (builder: MatcherBuilder<State>) => void;
 
 export interface ReducerSlice<State> {
     readonly reducerKey: string;
-    readonly builder: ReducerSliceBuilder<State>;
+    readonly caseBuilder?: SliceCaseBuilder<State>;
+    readonly matcherBuilder?: SliceMatcherBuilder<State>;
 }
 
-export interface ReducerInitialState {
+export interface ReducerInitialState<State> {
     readonly reducerKey: string;
-    readonly state: any;
+    readonly state: State;
 }
 
 type ReducerDictionary = {[reducerKey: string]: Reducer};
@@ -33,8 +40,10 @@ type ReducerDictionary = {[reducerKey: string]: Reducer};
 // for non orm functions
 // generates a dictionary of reducers
 // output can be sent directly by combineReducers
-export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates: ReducerInitialState[]): ReducerDictionary {
-    // process initial states
+export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates: ReducerInitialState<any>[]): ReducerDictionary {
+    ////////////////////////////////////
+    // STEP 1: process initial states //
+    ////////////////////////////////////
     const initialStateDictionary: { [reducerKey: string]: any} = {}; // lookup for initial states
     for (const initialState of initialStates) {
         const reducerKey = initialState.reducerKey;
@@ -49,23 +58,70 @@ export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates:
                 ...initialState.state,
             };
         }
-
     }
 
-    // process slices by key into a dictionary
-    const sliceDictionary: { [reducerKey: string]: ReducerSliceBuilder<any>[]} = {};
+    //////////////////////////////////////////////////////////
+    // STEP 2: process case slices by key into a dictionary //
+    //////////////////////////////////////////////////////////
+    const sliceCaseDictionary: { [reducerKey: string]: SliceCaseBuilder<any>[]} = {};
     for (const slice of slices) {
+        if (!slice.caseBuilder) {
+            continue;
+        }
         const reducerKey = slice.reducerKey;
-        if (!sliceDictionary[reducerKey]) {
-            sliceDictionary[reducerKey] = [slice.builder];
+        if (!sliceCaseDictionary[reducerKey]) {
+            sliceCaseDictionary[reducerKey] = [slice.caseBuilder];
         } else {
-            sliceDictionary[reducerKey].push(slice.builder);
+            sliceCaseDictionary[reducerKey].push(slice.caseBuilder);
         }
     }
 
-    // create reducers
+    /////////////////////////////////////////////////////////////
+    // STEP 3: process matcher slices by key into a dictionary //
+    /////////////////////////////////////////////////////////////
+    const sliceMatcherDictionary: { [reducerKey: string]: SliceMatcherBuilder<any>[]} = {};
+    for (const slice of slices) {
+        if (!slice.matcherBuilder) {
+            continue;
+        }
+        const reducerKey = slice.reducerKey;
+        if (!sliceMatcherDictionary[reducerKey]) {
+            sliceMatcherDictionary[reducerKey] = [slice.matcherBuilder];
+        } else {
+            sliceMatcherDictionary[reducerKey].push(slice.matcherBuilder);
+        }
+    }
+
+    ///////////////////////////////////////////////////////////////////////
+    // STEP 4: create reducers with either just case, or case + matchers //
+    ///////////////////////////////////////////////////////////////////////
     const result: ReducerDictionary = {};
-    for (const [key, array] of Object.entries(sliceDictionary)) {
+    for (const [key, array] of Object.entries(sliceCaseDictionary)) {
+        result[key] = createReducer(initialStates[key], (builder) => {
+            // add cases
+            for (const handler of array) {
+                handler(builder);
+            }
+
+            // add matchers if exists
+            if (sliceMatcherDictionary[key]) {
+                for (const handler of sliceMatcherDictionary[key]) {
+                    handler(builder);
+                }
+            }
+        });
+    }
+
+    //////////////////////////////////////////////////////
+    // STEP 5: create reducers which just have matchers //
+    //////////////////////////////////////////////////////
+    for (const [key, array] of Object.entries(sliceMatcherDictionary)) {
+        // already exists check, which means it had case + matcher already
+        if (result[key]) {
+            continue;
+        }
+
+        // add matcher only reducer
         result[key] = createReducer(initialStates[key], (builder) => {
             for (const handler of array) {
                 handler(builder);
@@ -86,7 +142,7 @@ export interface MyFeatureSliceReducer {
 }
 
 // here is the initial state, optional of course, just at least 1 feature bucket should dfeine it
-export const initialState: ReducerInitialState = {
+export const initialState: ReducerInitialState<MyFeatureSliceReducer> = {
     reducerKey: 'foobar',
     state: {
         text: 'idk'
@@ -119,9 +175,19 @@ export const myFeatureAction = createAction("CREATE_SOMETHING", function prepare
 // here is a reducer slice with a handler
 export const sliceTest: ReducerSlice<MyFeatureSliceReducer> = {
     reducerKey: 'foobar',
-    builder: (builder) => {
+    caseBuilder: (builder) => {
         builder.addCase(myFeatureAction, (state, action) => {
             state.text = action.payload.text;
+        });
+    },
+    matcherBuilder: (builder) => {
+        builder.addMatcher((action) => {
+            if (action.payload.hello) {
+                return true;
+            }
+            return false;
+        }, (state, action) => {
+            state[action.meta.requestId] = "fulfilled";
         });
     }
 };
@@ -133,8 +199,6 @@ export const sliceTest: ReducerSlice<MyFeatureSliceReducer> = {
 // this has a dictionary of reducers
 // this can then be sent directly to combineReducers
 const result = combineReducerSlices([sliceTest], [initialState]);
-
-
 
 //////////////////////////
 // LOGIC FOR ORM SLICES //
@@ -159,7 +223,7 @@ type ORMReducerSlice = (builder: ORMReducerBuilder) => void;
 
 export const combineORMSlices = (orm: ORM<any, any>, ormReducerSlices: ORMReducerSlice[]) => {
     // dictionary
-    const dictionary: { [actionType: string]: ORMReducer[] } = {};
+    const dictionary: { [actionType: string]: ORMReducer<any>[] } = {};
     
     // create builder
     const builder: ORMReducerBuilder = {
