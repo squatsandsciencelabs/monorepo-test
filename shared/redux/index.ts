@@ -15,19 +15,27 @@ import AthletesModel from '../models/athletes';
 // LOGIC FOR SLICES AND INITIAL STATE //
 ////////////////////////////////////////
 
-// facade over action reducer map builder that only allows for case or matcher
-// done this way to get around redux toolkit limitation that cases must be executed before matchers
-type CaseBuilder<State> = Pick<ActionReducerMapBuilder<State>, "addCase">
-type MatcherBuilder<State> = Pick<ActionReducerMapBuilder<State>, "addMatcher">;
+// duplicated from redux toolkit as it does not expose the action matcher
+interface ActionMatcher<A extends AnyAction> {
+    (action: AnyAction): action is A;
+}
 
-// builder callback functions that give you access to the builder
-type SliceCaseBuilder<State> = (builder: CaseBuilder<State>) => void;
-type SliceMatcherBuilder<State> = (builder: MatcherBuilder<State>) => void;
+// saves builder params
+// done this way to get around redux toolkit limitation that cases must be executed before matchers
+interface AddCaseParams<ActionCreator extends TypedActionCreator<string>> {
+    actionCreator: ActionCreator;
+    callback: CaseReducer<ReturnType<ActionCreator>>;
+}
+interface AddMatcherParams<A extends AnyAction> {
+    matcher: ActionMatcher<A> | ((action: AnyAction) => boolean);
+    reducer: CaseReducer<any, A>;
+}
+
+type SliceBuilder<State> = (builder: ActionReducerMapBuilder<State>) => void;
 
 export interface ReducerSlice<State> {
     readonly reducerKey: string;
-    readonly caseBuilder?: SliceCaseBuilder<State>;
-    readonly matcherBuilder?: SliceMatcherBuilder<State>;
+    readonly builder: SliceBuilder<State>;
 }
 
 export interface ReducerInitialState<State> {
@@ -60,53 +68,64 @@ export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates:
         }
     }
 
-    //////////////////////////////////////////////////////////
-    // STEP 2: process case slices by key into a dictionary //
-    //////////////////////////////////////////////////////////
-    const sliceCaseDictionary: { [reducerKey: string]: SliceCaseBuilder<any>[]} = {};
-    for (const slice of slices) {
-        if (!slice.caseBuilder) {
-            continue;
+    ////////////////////////////////////////
+    // STEP 2: DEFINE THE BUILDER WRAPPER //
+    // Saves the params into dictionaries //
+    ////////////////////////////////////////
+    const addCaseDictionary: { [reducerKey: string]: AddCaseParams<any>[] } = {};
+    const addMatcherDictionary: { [reducerKey: string]: AddMatcherParams<any>[] } = {};
+    let reducerKey = '';
+    const builder: ActionReducerMapBuilder<any> = {
+        addCase<ActionCreator extends TypedActionCreator<string>>(
+            actionCreator: ActionCreator,
+            callback: CaseReducer<ReturnType<ActionCreator>>) {
+                if (!addCaseDictionary[reducerKey]) {
+                    addCaseDictionary[reducerKey] = [{ actionCreator, callback }];
+                } else {
+                    addCaseDictionary[reducerKey].push({ actionCreator, callback });
+                }
+                return builder;
+            },
+        addMatcher<A extends AnyAction>(
+            matcher: ActionMatcher<A> | ((action: AnyAction) => boolean),
+            reducer: CaseReducer<any, A>): Omit<ActionReducerMapBuilder<any>, 'addCase'> {
+                if (!addMatcherDictionary[reducerKey]) {
+                    addMatcherDictionary[reducerKey] = [{ matcher, reducer }];
+                } else {
+                    addMatcherDictionary[reducerKey].push({ matcher, reducer });
+                }
+                return builder;
+            },
+        addDefaultCase(reducer: CaseReducer<any, AnyAction>) {
+            // TODO: implement this
+            return builder;
         }
-        const reducerKey = slice.reducerKey;
-        if (!sliceCaseDictionary[reducerKey]) {
-            sliceCaseDictionary[reducerKey] = [slice.caseBuilder];
-        } else {
-            sliceCaseDictionary[reducerKey].push(slice.caseBuilder);
-        }
-    }
+    };
 
-    /////////////////////////////////////////////////////////////
-    // STEP 3: process matcher slices by key into a dictionary //
-    /////////////////////////////////////////////////////////////
-    const sliceMatcherDictionary: { [reducerKey: string]: SliceMatcherBuilder<any>[]} = {};
+
+    /////////////////////////////////
+    // STEP 3: process case slices //
+    /////////////////////////////////
     for (const slice of slices) {
-        if (!slice.matcherBuilder) {
-            continue;
-        }
-        const reducerKey = slice.reducerKey;
-        if (!sliceMatcherDictionary[reducerKey]) {
-            sliceMatcherDictionary[reducerKey] = [slice.matcherBuilder];
-        } else {
-            sliceMatcherDictionary[reducerKey].push(slice.matcherBuilder);
-        }
+        reducerKey = slice.reducerKey; // set the key, which tells builder where to add it to
+        slice.builder(builder);
     }
 
     ///////////////////////////////////////////////////////////////////////
     // STEP 4: create reducers with either just case, or case + matchers //
     ///////////////////////////////////////////////////////////////////////
     const result: ReducerDictionary = {};
-    for (const [key, array] of Object.entries(sliceCaseDictionary)) {
+    for (const [key, array] of Object.entries(addCaseDictionary)) {
         result[key] = createReducer(initialStates[key], (builder) => {
             // add cases
-            for (const handler of array) {
-                handler(builder);
+            for (const params of array) {
+                builder.addCase(params.actionCreator, params.callback);
             }
 
             // add matchers if exists
-            if (sliceMatcherDictionary[key]) {
-                for (const handler of sliceMatcherDictionary[key]) {
-                    handler(builder);
+            if (addMatcherDictionary[key]) {
+                for (const params of addMatcherDictionary[key]) {
+                    builder.addMatcher(params.matcher, params.reducer);
                 }
             }
         });
@@ -115,7 +134,7 @@ export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates:
     //////////////////////////////////////////////////////
     // STEP 5: create reducers which just have matchers //
     //////////////////////////////////////////////////////
-    for (const [key, array] of Object.entries(sliceMatcherDictionary)) {
+    for (const [key, array] of Object.entries(addMatcherDictionary)) {
         // already exists check, which means it had case + matcher already
         if (result[key]) {
             continue;
@@ -123,8 +142,8 @@ export function combineReducerSlices(slices: ReducerSlice<any>[], initialStates:
 
         // add matcher only reducer
         result[key] = createReducer(initialStates[key], (builder) => {
-            for (const handler of array) {
-                handler(builder);
+            for (const params of array) {
+                builder.addMatcher(params.matcher, params.reducer);
             }
         });
     }
@@ -175,19 +194,17 @@ export const myFeatureAction = createAction("CREATE_SOMETHING", function prepare
 // here is a reducer slice with a handler
 export const sliceTest: ReducerSlice<MyFeatureSliceReducer> = {
     reducerKey: 'foobar',
-    caseBuilder: (builder) => {
+    builder: (builder) => {
         builder.addCase(myFeatureAction, (state, action) => {
             state.text = action.payload.text;
         });
-    },
-    matcherBuilder: (builder) => {
         builder.addMatcher((action) => {
             if (action.payload.hello) {
                 return true;
             }
             return false;
         }, (state, action) => {
-            state[action.meta.requestId] = "fulfilled";
+            state.text = action.payload.hello;
         });
     }
 };
