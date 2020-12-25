@@ -4,6 +4,8 @@ import {
     createReducer,
     ActionReducerMapBuilder,
     CaseReducer,
+    PrepareAction,
+    PayloadActionCreator,
 } from '@reduxjs/toolkit';
 import { ThunkAction } from 'redux-thunk';
 
@@ -312,37 +314,45 @@ const ormResult = combineORMSlices(orm, [ormSliceTest]);
 
 
 
-/*
+
 // ACTION WRAPPER TESTS //
 
-export function createAPIAction<PA extends PrepareAction<any>, T extends string = string>(type: T, prepareAction: PA)  {
-    // NOTE: I cannot figure out how to combine PayloadActionCreator with other typescript types
-    // So hack solution is to just define it inline here instead
-    // Hack involves setting the properties as undefine-able, and re-casting as normal
-    // There is definitely a safer and better way to do this in TypeScript
+// export declare function createAction<PA extends PrepareAction<any>, T extends string = string>(type: T, prepareAction: PA): PayloadActionCreator<ReturnType<PA>['payload'], T, PA>;
 
-    const attemptAction = createAction(`${type}_ATTEMPT`, prepareAction);
-    const succeededAction = createAction<any>(`${type}_SUCCEEDED`);
-    const failedAction = createAction<any>(`${type}_FAILED`); // payload will be the error I thinnk?
+export function createAPIAction<PA extends PrepareAction<any>, T extends string = string>(type: T, prepareAction: PA) {
+    // set the _ATTEMPT type
+    type AttemptType = `${T}_ATTEMPT`;
+    const attemptType = `${type}_ATTEMPT`;
 
-    const action = createAction(type, prepareAction) as PayloadActionCreator<ReturnType<PA>['payload'], T, PA> & {
-        attemptAction?: ReturnType<PayloadActionCreator<ReturnType<PA>['payload'], `${type}_ATTEMPT`, PA>>;
-        succeededAction?: PayloadActionCreator;
-        failedAction?: PayloadActionCreator;
+    type ResultType = ReturnType<PA>["payload"] & { queueType: AttemptType }
+    const prepareWrapper = (...args) => {
+        const result = prepareAction(...args);
+        result.payload.queueType = attemptType;
+        return result as ResultType;
     };
-    return action as PayloadActionCreator<ReturnType<PA>['payload'], T, PA>  & {
-        attemptAction: PayloadActionCreator;
-        succeededAction: PayloadActionCreator;
-        failedAction: PayloadActionCreator;
-    };;
+
+    // @ts-ignore - ignoring the error here as I can't figure out how to make `${T}_ATTEMPT` equal `${type}_ATTEMPT`
+    const attemptAction = createAction<PA, AttemptType>(attemptType, prepareAction);
+
+    const origAction = createAction<PrepareAction<ResultType>, T>(type, prepareWrapper);
+    let resultOptional: typeof origAction & { attemptAction?: typeof attemptAction } = origAction;
+    resultOptional.attemptAction = attemptAction;
+    return resultOptional as typeof origAction & { attemptAction: typeof attemptAction };
 }
 
 const actionTest = createAPIAction('FETCH_GROUPS', (hello: string) => {
     return {
-        goodbye: 'cruel world',
         payload: {
-            hello
+            hello,
+            foo: 'bar',
         }
     };
 });
-*/
+
+const actionTestResult = actionTest('foobar');
+actionTestResult.payload.queueType;
+actionTestResult.payload.hello;
+
+const attemptActionTest = actionTest.attemptAction('foobar');
+attemptActionTest.payload.foo;
+attemptActionTest.payload.hello;
