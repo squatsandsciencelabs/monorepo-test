@@ -320,22 +320,23 @@ const ormResult = combineORMSlices(orm, [ormSliceTest]);
 
 // export declare function createAction<PA extends PrepareAction<any>, T extends string = string>(type: T, prepareAction: PA): PayloadActionCreator<ReturnType<PA>['payload'], T, PA>;
 
-export function createQueuedAction<PA extends PrepareAction<any>, T extends string = string>(type: T, prepareAction: PA) {
+export function createQueuedAction<PA extends PrepareAction<{ [key: string]: any }>, T extends string = string>(type: T, prepareAction: PA) {
     // set the _ATTEMPT type
     type AttemptType = `${T}_ATTEMPT`;
     const attemptType = `${type}_ATTEMPT`;
 
-    type ResultType = ReturnType<PA>["payload"] & { queueType: AttemptType }
+    type CombinedPayload = ReturnType<PA>["payload"] & { queueType: AttemptType }
     const prepareWrapper = (...args: any[]) => {
         const result = prepareAction(...args);
         result.payload.queueType = attemptType;
-        return result as ResultType;
+        return result as { payload: CombinedPayload };
     };
 
     // @ts-ignore - ignoring the error here as I can't figure out how to make `${T}_ATTEMPT` equal `${type}_ATTEMPT`
+    // if I try typeof attemptType, it just becomes a string instead
     const attemptAction = createAction<PA, AttemptType>(attemptType, prepareAction);
 
-    const origAction: ActionCreatorWithPreparedPayload<Parameters<PA>, ResultType, T> = createAction<PrepareAction<ResultType>, T>(type, prepareWrapper);
+    const origAction: ActionCreatorWithPreparedPayload<Parameters<PA>, CombinedPayload, T> = createAction<PrepareAction<CombinedPayload>, T>(type, prepareWrapper);
     let resultOptional: typeof origAction & { attemptAction?: typeof attemptAction } = origAction;
     resultOptional.attemptAction = attemptAction;
     return resultOptional as typeof origAction & { attemptAction: typeof attemptAction };
@@ -357,3 +358,13 @@ actionTestResult.payload.hello;
 const attemptActionTest = actionTest.attemptAction('foobar');
 attemptActionTest.payload.foo;
 attemptActionTest.payload.hello;
+
+const actionTest2 = createQueuedAction('IDK_MAN', (hello: string) => {
+    return {
+        payload: {
+            hello,
+        }
+    };
+});
+const a2 = actionTest2('a');
+a2.payload.queueType;
